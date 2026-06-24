@@ -40,9 +40,11 @@ use storage::{
     set_timelock_duration, set_version, set_veto_threshold, set_voting_token, get_vote_record, get_max_duration,
     set_pending_admin, get_pending_admin, clear_pending_admin,
     set_admin_transfer_expiry, get_admin_transfer_expiry,
-    set_pause_reason,
+    set_pause_reason, get_ttl_bump_ledgers, set_ttl_bump_ledgers,
+    get_multisig_config, set_multisig_config, next_multisig_action_id, save_multisig_action,
+    load_multisig_action, set_multisig_approval, has_multisig_approval,
 };
-use types::{ContractError, ContractState, DataKey, GovernanceConfig, Proposal, ProposalState, Vote, VoteRecord};
+use types::{ContractError, ContractState, DataKey, GovernanceConfig, Proposal, ProposalState, Vote, VoteRecord, MultiSigConfig, MultiSigAction, MultiSigActionType};
 
 const MAX_TITLE_LEN: u32 = 128;
 const MAX_DESC_LEN: u32 = 1024;

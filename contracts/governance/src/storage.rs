@@ -38,7 +38,7 @@
 //! collide even when called with identical arguments.
 
 use soroban_sdk::{Env, Address, String};
-use crate::types::{ContractError, ContractState, DataKey, Proposal, VoteRecord};
+use crate::types::{ContractError, ContractState, DataKey, Proposal, VoteRecord, MultiSigConfig, MultiSigAction};
 
 // =============================================================================
 // Storage Strategy
@@ -61,24 +61,123 @@ use crate::types::{ContractError, ContractState, DataKey, Proposal, VoteRecord};
 //   DataKey::RestrictAdminVote  – whether admin may vote on own proposals
 //   DataKey::Paused             – contract pause flag
 //   DataKey::Version            – semver tuple (major, minor, patch)
+//   DataKey::TTLBumpLedgers     – configurable ledger count for TTL bumping
 //
 // PERSISTENT storage – per-key TTL, survives ledger expiry independently.
 //                      Used for data that must outlive any single ledger and
 //                      is keyed by a variable (proposal ID, voter address, etc.).
+//                      TTL is bumped on write to prevent expiry of long-running proposals.
 //
 //   DataKey::Proposal(id)                  – full proposal struct
 //   DataKey::HasVoted(proposal_id, voter)  – deduplication flag per voter
 //   DataKey::VoteRecord(proposal_id, voter)– immutable vote audit record
 //   DataKey::VoterSnapshot(proposal_id, voter) – balance snapshot at vote time
 //   DataKey::LastProposal(proposer)        – timestamp of proposer's last proposal
+//   DataKey::MultiSigAction(id)            – multi-sig action awaiting approval
+//   DataKey::MultiSigApproval(action_id, approver) – approval flag per approver
 //
 // TEMPORARY storage  – not used in this contract. Allowances in the token
 //                      contract use temporary storage; see token/src/storage.rs.
 // =============================================================================
 
+// =============================================================================
+// TTL Bump Configuration & Helpers
+// =============================================================================
+
+/// Default TTL bump amount in ledgers (~60 days at ~10 sec per ledger).
+/// Configurable via `set_ttl_bump_ledgers()`.
+const DEFAULT_TTL_BUMP_LEDGERS: u32 = 518_400;
+
+/// Retrieves the configured TTL bump amount in ledgers.
+/// Used when extending TTL for persistent storage entries.
+pub fn get_ttl_bump_ledgers(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::TTLBumpLedgers)
+        .unwrap_or(DEFAULT_TTL_BUMP_LEDGERS)
+}
+
+/// Sets the TTL bump amount in ledgers for persistent storage entries.
+pub fn set_ttl_bump_ledgers(env: &Env, ledgers: u32) {
+    env.storage().instance().set(&DataKey::TTLBumpLedgers, &ledgers);
+}
+
+/// Bumps the TTL for a persistent storage entry.
+/// 
+/// Uses a conservative strategy:
+/// - Threshold: half of the configured bump amount
+/// - Bump amount: configured TTL bump amount
+/// 
+/// This ensures entries are extended before they expire.
+fn get_ttl_bump_params(env: &Env) -> (u32, u32) {
+    let bump_amount = get_ttl_bump_ledgers(env);
+    let threshold = bump_amount / 2;
+    (threshold, bump_amount)
+}
+
+/// Bumps the TTL for a proposal and all its related entries.
+/// 
+/// Extends TTL for the Proposal key.
+/// Individual vote entries are bumped when votes are cast.
+pub fn bump_ttl_proposal(env: &Env, proposal_id: u64) {
+    let (threshold, bump_amount) = get_ttl_bump_params(env);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::Proposal(proposal_id), threshold, bump_amount);
+}
+
+/// Bumps the TTL for a voter's last proposal timestamp.
+pub fn bump_ttl_last_proposal(env: &Env, proposer: &Address) {
+    let (threshold, bump_amount) = get_ttl_bump_params(env);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::LastProposal(proposer.clone()), threshold, bump_amount);
+}
+
+/// Bumps the TTL for a voter's has_voted flag on a proposal.
+pub fn bump_ttl_has_voted(env: &Env, proposal_id: u64, voter: &Address) {
+    let (threshold, bump_amount) = get_ttl_bump_params(env);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::HasVoted(proposal_id, voter.clone()), threshold, bump_amount);
+}
+
+/// Bumps the TTL for a voter's vote record on a proposal.
+pub fn bump_ttl_vote_record(env: &Env, proposal_id: u64, voter: &Address) {
+    let (threshold, bump_amount) = get_ttl_bump_params(env);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::VoteRecord(proposal_id, voter.clone()), threshold, bump_amount);
+}
+
+/// Bumps the TTL for a voter's snapshot on a proposal.
+pub fn bump_ttl_voter_snapshot(env: &Env, proposal_id: u64, voter: &Address) {
+    let (threshold, bump_amount) = get_ttl_bump_params(env);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::VoterSnapshot(proposal_id, voter.clone()), threshold, bump_amount);
+}
+
+/// Bumps the TTL for a multi-sig action.
+pub fn bump_ttl_multisig_action(env: &Env, action_id: u64) {
+    let (threshold, bump_amount) = get_ttl_bump_params(env);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::MultiSigAction(action_id), threshold, bump_amount);
+}
+
+/// Bumps the TTL for a multi-sig approval.
+pub fn bump_ttl_multisig_approval(env: &Env, action_id: u64, approver: &Address) {
+    let (threshold, bump_amount) = get_ttl_bump_params(env);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::MultiSigApproval(action_id, approver.clone()), threshold, bump_amount);
+}
+
 /// Persists a proposal to contract storage, keyed by its ID.
 pub fn save_proposal(env: &Env, p: &Proposal) {
     env.storage().persistent().set(&DataKey::Proposal(p.id), p);
+    bump_ttl_proposal(env, p.id);
 }
 
 /// Loads a proposal from storage by ID.
@@ -172,6 +271,7 @@ pub fn get_veto_threshold(env: &Env) -> i128 {
 /// Records that `voter` has voted on `proposal_id`.
 pub fn mark_voted(env: &Env, proposal_id: u64, voter: &Address) {
     env.storage().persistent().set(&DataKey::HasVoted(proposal_id, voter.clone()), &true);
+    bump_ttl_has_voted(env, proposal_id, voter);
 }
 
 /// Returns `true` if `voter` has already voted on `proposal_id`.
@@ -185,6 +285,7 @@ pub fn has_voted(env: &Env, proposal_id: u64, voter: &Address) -> bool {
 /// Stores the vote record for `voter` on `proposal_id`.
 pub fn save_vote_record(env: &Env, proposal_id: u64, voter: &Address, record: &VoteRecord) {
     env.storage().persistent().set(&DataKey::VoteRecord(proposal_id, voter.clone()), record);
+    bump_ttl_vote_record(env, proposal_id, voter);
 }
 
 /// Returns the vote record for `voter` on `proposal_id`, or `None` if not voted.
@@ -210,6 +311,7 @@ pub fn get_proposal_cooldown(env: &Env) -> u64 {
 
 pub fn set_last_proposal(env: &Env, proposer: &Address, ts: u64) {
     env.storage().persistent().set(&DataKey::LastProposal(proposer.clone()), &ts);
+    bump_ttl_last_proposal(env, proposer);
 }
 
 pub fn get_last_proposal(env: &Env, proposer: &Address) -> u64 {
@@ -222,6 +324,7 @@ pub fn save_voter_snapshot(env: &Env, proposal_id: u64, voter: &Address, weight:
     env.storage()
         .persistent()
         .set(&DataKey::VoterSnapshot(proposal_id, voter.clone()), &weight);
+    bump_ttl_voter_snapshot(env, proposal_id, voter);
 }
 
 /// Returns the stored vote-weight snapshot for a voter on a proposal.
@@ -370,6 +473,7 @@ pub fn save_multisig_action(env: &Env, action: &MultiSigAction) {
     env.storage()
         .persistent()
         .set(&DataKey::MultiSigAction(action.id), action);
+    bump_ttl_multisig_action(env, action.id);
 }
 
 /// Loads a multi-sig action by ID.
@@ -388,6 +492,7 @@ pub fn set_multisig_approval(env: &Env, action_id: u64, approver: &Address) {
     env.storage()
         .persistent()
         .set(&DataKey::MultiSigApproval(action_id, approver.clone()), &true);
+    bump_ttl_multisig_approval(env, action_id, approver);
 }
 
 /// Returns `true` if `approver` has already approved `action_id`.
