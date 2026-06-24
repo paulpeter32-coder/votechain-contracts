@@ -292,26 +292,10 @@ pub enum DataKey {
     /// Key space: singleton — only one `AmendWindow` entry exists.
     AmendWindow,
 
-    /// Number of ledgers to bump TTL by for persistent storage entries (instance storage).
-    /// Key space: singleton — only one `TTLBumpLedgers` entry exists.
-    /// Prevents expiry of long-running proposals and vote records.
-    TTLBumpLedgers,
-
-    /// Multi-sig admin configuration (instance storage).
-    /// Key space: singleton — only one `MultiSigConfig` entry exists.
-    MultiSigConfig,
-
-    /// Multi-sig action counter (instance storage).
-    /// Key space: singleton — only one `MultiSigActionCount` entry exists.
-    MultiSigActionCount,
-
-    /// Multi-sig action stored by ID (persistent storage).
-    /// Key space: one entry per unique action ID.
-    MultiSigAction(u64),
-
-    /// Multi-sig approval flag for an approver on an action (persistent storage).
-    /// Key space: one entry per `(action_id, approver)` pair.
-    MultiSigApproval(u64, Address),
+    /// TTL bump amount for persistent storage entries (measured in ledgers).
+    /// Controls how many ledgers into the future the TTL is extended on write operations.
+    /// Key space: singleton — only one `PersistentStorageTTL` entry exists.
+    PersistentStorageTTL,
 }
 
 #[contracttype]
@@ -334,6 +318,7 @@ pub struct GovernanceConfig {
     pub timelock_duration: u64,
     pub paused: bool,
     pub version: (u32, u32, u32),
+    pub persistent_storage_ttl: u32,
 }
 
 /// Multi-signature admin configuration.

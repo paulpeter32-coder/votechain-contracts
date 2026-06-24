@@ -23,6 +23,8 @@ mod prop_tests;
 #[cfg(test)]
 mod test;
 #[cfg(test)]
+mod test_ttl;
+#[cfg(test)]
 pub mod test_helpers;
 #[cfg(test)]
 mod prop_tests;
@@ -40,9 +42,7 @@ use storage::{
     set_timelock_duration, set_version, set_veto_threshold, set_voting_token, get_vote_record, get_max_duration,
     set_pending_admin, get_pending_admin, clear_pending_admin,
     set_admin_transfer_expiry, get_admin_transfer_expiry,
-    set_pause_reason, get_ttl_bump_ledgers, set_ttl_bump_ledgers,
-    get_multisig_config, set_multisig_config, next_multisig_action_id, save_multisig_action,
-    load_multisig_action, set_multisig_approval, has_multisig_approval,
+    set_pause_reason, set_persistent_storage_ttl, get_persistent_storage_ttl,
 };
 use types::{ContractError, ContractState, DataKey, GovernanceConfig, Proposal, ProposalState, Vote, VoteRecord, MultiSigConfig, MultiSigAction, MultiSigActionType};
 
@@ -196,6 +196,8 @@ impl GovernanceContract {
     ///   becoming executable. Use `0` to disable the timelock.
     /// - `veto_threshold`: vote weight threshold that rejects a proposal immediately when
     ///   `votes_no >= veto_threshold`. Use `0` to disable the veto mechanism.
+    /// - `persistent_storage_ttl`: TTL bump amount in ledgers for persistent storage entries;
+    ///   controls how long proposals and votes survive (default ~60 days). Use `0` to use default.
     ///
     /// # Errors
     /// - [`ContractError::AlreadyInitialized`] if the contract has already been initialised.
@@ -211,6 +213,8 @@ impl GovernanceContract {
     ///     2_592_000,  // max 30-day voting window
     ///     true,       // restrict admin voting
     ///     0,          // no timelock
+    ///     0,          // veto threshold disabled
+    ///     535_680,    // TTL: ~60 days
     /// )?;
     /// ```
     pub fn initialize(
@@ -225,6 +229,7 @@ impl GovernanceContract {
         amend_window: u64,
         timelock_duration: u64,
         veto_threshold: i128,
+        persistent_storage_ttl: u32,
     ) -> Result<(), ContractError> {
         // SEC-005: auth is the first operation in every privileged function.
         admin.require_auth();
@@ -264,6 +269,9 @@ impl GovernanceContract {
             set_timelock_duration(&env, timelock_duration);
         }
         set_veto_threshold(&env, veto_threshold);
+        if persistent_storage_ttl > 0 {
+            set_persistent_storage_ttl(&env, persistent_storage_ttl);
+        }
         set_version(&env, (1, 0, 0));
         set_contract_state(&env, &ContractState::Ready);
         events::contract_initialized(&env, &admin);

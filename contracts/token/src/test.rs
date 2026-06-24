@@ -14,7 +14,11 @@
 
 #![cfg(test)]
 use super::*;
-use soroban_sdk::{symbol_short, testutils::{Address as _, Events}, Address, Env, IntoVal, TryFromVal};
+use soroban_sdk::{
+    symbol_short,
+    testutils::{Address as _, Events},
+    Address, Env, IntoVal, TryFromVal,
+};
 
 fn setup() -> (Env, TokenContractClient<'static>) {
     let env = Env::default();
@@ -66,7 +70,7 @@ fn test_overdraft() {
 }
 
 #[test]
-#[should_panic(expected = "not admin")]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_mint_non_admin() {
     let (env, c) = setup();
     let admin = Address::generate(&env);
@@ -371,7 +375,7 @@ fn test_transfer_admin_old_admin_loses_privileges() {
 }
 
 #[test]
-#[should_panic(expected = "not admin")]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_transfer_admin_old_admin_cannot_mint() {
     let (env, c) = setup();
     let admin = Address::generate(&env);
@@ -384,7 +388,7 @@ fn test_transfer_admin_old_admin_cannot_mint() {
 }
 
 #[test]
-#[should_panic(expected = "not admin")]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_transfer_admin_non_admin_reverts() {
     let (env, c) = setup();
     let admin = Address::generate(&env);
@@ -417,7 +421,9 @@ fn test_transfer_admin_emits_event() {
     let events = env.events().all();
     assert!(events.iter().any(|(_, topics, data)| {
         topics == (symbol_short!("admxfer"),).into_val(&env)
-            && <(Address, Address)>::try_from_val(&env, &data).ok().as_ref()
+            && <(Address, Address)>::try_from_val(&env, &data)
+                .ok()
+                .as_ref()
                 == Some(&(admin.clone(), new_admin.clone()))
     }));
 }

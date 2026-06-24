@@ -71,7 +71,9 @@ impl TokenContract {
     ///
     /// # Returns
     /// Total supply as `i128`.
-    pub fn total_supply(env: Env) -> i128 { total_supply(&env) }
+    pub fn total_supply(env: Env) -> i128 {
+        total_supply(&env)
+    }
 
     /// Returns the token balance of an address.
     ///
@@ -81,7 +83,9 @@ impl TokenContract {
     ///
     /// # Returns
     /// Balance as `i128`. Returns `0` if the address has never held tokens.
-    pub fn balance(env: Env, owner: Address) -> i128 { balance_of(&env, &owner) }
+    pub fn balance(env: Env, owner: Address) -> i128 {
+        balance_of(&env, &owner)
+    }
 
     /// Returns the token balance of an address (alias for [`balance`]).
     ///
@@ -91,7 +95,9 @@ impl TokenContract {
     ///
     /// # Returns
     /// Balance as `i128`. Returns `0` if the address has never held tokens.
-    pub fn balance_of(env: Env, owner: Address) -> i128 { balance_of(&env, &owner) }
+    pub fn balance_of(env: Env, owner: Address) -> i128 {
+        balance_of(&env, &owner)
+    }
 
     /// Transfers tokens from one address to another.
     ///
@@ -105,18 +111,27 @@ impl TokenContract {
     /// - [`ContractError::InvalidAddress`] if `from` or `to` is the zero address.
     /// - [`ContractError::InvalidAmount`] if `amount` is zero or negative.
     /// - [`ContractError::InsufficientBalance`] if `from` has fewer tokens than `amount`.
-    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) -> Result<(), ContractError> {
+    pub fn transfer(
+        env: Env,
+        from: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
         // SEC-005: auth first.
         from.require_auth();
         // SEC-004: reject zero addresses.
         require_non_zero_address(&env, &from)?;
         require_non_zero_address(&env, &to)?;
-        if amount <= 0 { return Err(ContractError::InvalidAmount); }
+        if amount <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
         // Transfer to self is a no-op: auth is still required but no state changes occur.
         if from == to { return Ok(()); }
         if is_frozen(&env, &from) || is_frozen(&env, &to) { return Err(ContractError::AccountFrozen); }
         let b = balance_of(&env, &from);
-        if b < amount { return Err(ContractError::InsufficientBalance); }
+        if b < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
         set_balance(&env, &from, b - amount);
         set_balance(&env, &to, balance_of(&env, &to) + amount);
         events::transferred(&env, &from, &to, amount);
@@ -135,7 +150,12 @@ impl TokenContract {
     ///
     /// # Errors
     /// - [`ContractError::InvalidAddress`] if `owner` or `spender` is the zero address.
-    pub fn approve(env: Env, owner: Address, spender: Address, amount: i128) -> Result<(), ContractError> {
+    pub fn approve(
+        env: Env,
+        owner: Address,
+        spender: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
         // SEC-005: auth first.
         owner.require_auth();
         // SEC-004: reject zero addresses.
@@ -158,7 +178,13 @@ impl TokenContract {
     /// - [`ContractError::InvalidAddress`] if `spender`, `from`, or `to` is the zero address.
     /// - [`ContractError::AllowanceExceeded`] if `amount` exceeds the current allowance.
     /// - [`ContractError::InsufficientBalance`] if `from` has fewer tokens than `amount`.
-    pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) -> Result<(), ContractError> {
+    pub fn transfer_from(
+        env: Env,
+        spender: Address,
+        from: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
         // SEC-005: auth first.
         spender.require_auth();
         // SEC-004: reject zero addresses.
@@ -169,7 +195,9 @@ impl TokenContract {
         if allowed < amount { return Err(ContractError::AllowanceExceeded); }
         if is_frozen(&env, &from) || is_frozen(&env, &to) { return Err(ContractError::AccountFrozen); }
         let b = balance_of(&env, &from);
-        if b < amount { return Err(ContractError::InsufficientBalance); }
+        if b < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
         set_allowance(&env, &from, &spender, allowed - amount);
         set_balance(&env, &from, b - amount);
         set_balance(&env, &to, balance_of(&env, &to) + amount);
@@ -220,13 +248,20 @@ impl TokenContract {
     /// - [`ContractError::InvalidAddress`] if `admin` or `from` is the zero address.
     /// - [`ContractError::NotAdmin`] if `admin` does not match the stored admin.
     /// - [`ContractError::InsufficientBalance`] if `from` has fewer tokens than `amount`.
-    pub fn burn(env: Env, admin: Address, from: Address, amount: i128) -> Result<(), ContractError> {
+    pub fn burn(
+        env: Env,
+        admin: Address,
+        from: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
         // SEC-005: auth first.
         admin.require_auth();
         // SEC-004: reject zero addresses.
         require_non_zero_address(&env, &admin)?;
         require_non_zero_address(&env, &from)?;
-        if get_admin(&env)? != admin { return Err(ContractError::NotAdmin); }
+        if get_admin(&env)? != admin {
+            return Err(ContractError::NotAdmin);
+        }
         let b = balance_of(&env, &from);
         if b < amount { return Err(ContractError::InsufficientBalance); }
         if is_frozen(&env, &from) { return Err(ContractError::AccountFrozen); }

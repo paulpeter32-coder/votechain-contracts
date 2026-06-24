@@ -1,27 +1,16 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::{Arc, RwLock}};
 
 use axum::{routing::get, routing::post, Router};
 use tokio::net::TcpListener;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
-
-async fn get_proposals() -> &'static str {
-    "[]"
-}
-
-async fn get_proposal() -> &'static str {
-    "{}"
-}
-
-async fn create_proposal() -> &'static str {
-    "{\"status\":\"created\"}"
-}
-
-async fn cast_vote() -> &'static str {
-    "{\"status\":\"voted\"}"
-}
+use votechain_api::{api, Indexer};
+use api::AppState;
 
 #[tokio::main]
 async fn main() {
+    let indexer = Arc::new(RwLock::new(Indexer::new()));
+    let state = AppState { indexer };
+
     // Read endpoints: 100 requests/minute per IP
     // 1 token replenished every 600 ms, burst of 100
     let read_conf = Arc::new(
@@ -45,20 +34,21 @@ async fn main() {
     );
 
     let read_routes = Router::new()
-        .route("/proposals", get(get_proposals))
-        .route("/proposals/{id}", get(get_proposal))
-        .layer(GovernorLayer {
-            config: read_conf,
-        });
+        .route("/proposals", get(api::list_proposals))
+        .route("/proposals/{id}", get(api::get_proposal))
+        .route("/proposals/{id}/votes", get(api::get_proposal_votes))
+        .route("/voters/{address}/votes", get(api::get_voter_votes))
+        .route("/openapi.json", get(api::openapi_json))
+        .layer(GovernorLayer::new(read_conf));
 
     let write_routes = Router::new()
-        .route("/proposals", post(create_proposal))
-        .route("/proposals/{id}/vote", post(cast_vote))
-        .layer(GovernorLayer {
-            config: write_conf,
-        });
+        .route("/ingest", post(api::ingest_event))
+        .layer(GovernorLayer::new(write_conf));
 
-    let app = Router::new().merge(read_routes).merge(write_routes);
+    let app = Router::new()
+        .merge(read_routes)
+        .merge(write_routes)
+        .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     let listener = TcpListener::bind(addr).await.unwrap();

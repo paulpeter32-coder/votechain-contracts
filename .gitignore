@@ -5,5 +5,18 @@ target/
 .env.mainnet
 *.wasm
 
-# Never commit real secrets — use .env.example as the template
-# .env.example is intentionally tracked
+# Node.js
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+
+# Rust
+**/*.rs.bk
+Cargo.lock
+
+# OS
+.DS_Store
+Thumbs.db
